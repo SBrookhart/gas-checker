@@ -1,0 +1,368 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Multichain Gas Checker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0b0f14;
+    --card: #111827;
+    --border: #1f2937;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+    --cheap: #065f46;
+    --moderate: #854d0e;
+    --expensive: #7f1d1d;
+    --accent: #243041;
+    --warn: #f59e0b22;
+    --warn-border: #f59e0b55;
+  }
+  body { background: var(--bg); color: var(--text); font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 4px; }
+  .meta { text-align:center; color: var(--muted); margin-bottom: 14px; }
+  .grid { display:grid; gap:14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .card { background: var(--card); padding: 16px; border-radius: 12px; border:1px solid var(--border); min-height: 120px; display:flex; flex-direction:column; justify-content:space-between; }
+  .card h2 { margin: 0 0 8px; font-size: 1.05rem; }
+  .value { font-size: 1.5rem; margin: 6px 0; }
+  .row { display:flex; justify-content:space-between; gap: 10px; align-items:center; }
+  .badge { display:inline-block; padding: 4px 10px; border-radius: 999px; font-size: .8rem; text-transform: capitalize; }
+  .cheap { background: var(--cheap); }
+  .moderate { background: var(--moderate); }
+  .expensive { background: var(--expensive); }
+  .err { color:#fca5a5; font-size: .9rem; }
+  .footer { text-align:center; color:var(--muted); margin-top:14px; font-size:.9rem; }
+  button { background:#1f2937; color:var(--text); border:1px solid var(--border); padding:6px 10px; border-radius:8px; cursor:pointer; }
+  button:hover { background:var(--accent); }
+  .banner { max-width:980px; margin:12px auto; padding:10px 12px; border:1px solid var(--warn-border); background:var(--warn); border-radius:10px; color:#fbbf24; }
+  .banner strong { color:#fde68a; }
+  details.debug { max-width: 980px; margin: 16px auto; background:#0f1620; border:1px solid var(--border); border-radius:10px; padding:8px 12px; }
+  .log { white-space: pre-wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color:#cbd5e1; max-height: 200px; overflow:auto; background:#0b1119; border:1px solid #1f2937; border-radius:8px; padding:8px; }
+</style>
+</head>
+
+<body>
+  <h1>⛽ Multichain Gas Checker</h1>
+  <div class="meta">
+    <span id="lastUpdated">Loading…</span>
+    &middot; Auto‑refresh every 30s
+    &middot; <button id="refreshBtn" title="Refresh now">Refresh</button>
+  </div>
+
+  <div id="banner" class="banner" style="display:none;">
+    <strong>Heads‑up:</strong> You’re opening this file directly from your computer (<code>file://</code>).
+    Some public Ethereum RPCs block requests from this origin, so the ETH card may show a fallback.
+    For the best experience, publish this page (free) with GitHub Pages—see steps below.
+  </div>
+
+  <div id="root" class="grid"></div>
+
+  <details class="debug">
+    <summary>Debug (optional)</summary>
+    <div class="log" id="debugLog">No logs yet.</div>
+    <div style="margin-top:8px; color:#9ca3af; font-size:12px;">
+      Tip: If Ethereum keeps failing here due to CORS, publishing to a real HTTPS URL (GitHub Pages) usually fixes it.
+    </div>
+  </details>
+
+<script>
+/** ========= Tiny debug logger ========= **/
+const logEl = document.getElementById('debugLog');
+function dlog(...args) {
+  const line = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+  logEl.textContent += `\n${new Date().toLocaleTimeString()}  ${line}`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+/** ========= Show banner if opened from file:// ========= **/
+if (location.protocol === 'file:') {
+  document.getElementById('banner').style.display = 'block';
+}
+
+/** ========= Utilities with timeouts ========= **/
+function toGwei(weiHexOrNum) {
+  try {
+    if (typeof weiHexOrNum === 'string') {
+      const n = parseInt(weiHexOrNum, 16);
+      return n / 1e9;
+    }
+    return Number(weiHexOrNum) / 1e9;
+  } catch (e) {
+    dlog('toGwei failed:', e.message || e);
+    return NaN;
+  }
+}
+function lamportsToSol(lamports) { return lamports / 1e9; }
+function gasLevelFromGwei(g) {
+  if (!isFinite(g)) return 'moderate';
+  if (g <= 10) return 'cheap';
+  if (g <= 30) return 'moderate';
+  return 'expensive';
+}
+function niceTime(ts = Date.now()) { return new Date(ts).toLocaleTimeString(); }
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { ...options, signal: ctrl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r;
+  } finally {
+    clearTimeout(id);
+  }
+}
+async function rpcPOST(url, method, params = [], timeoutMs = 4000) {
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
+  const r = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body
+  }, timeoutMs);
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || 'RPC error');
+  return j.result;
+}
+async function tryEndpoints(endpoints, fnName, callFn) {
+  let lastErr = null;
+  for (const url of endpoints) {
+    try {
+      dlog(`${fnName}: trying ${url}`);
+      const out = await callFn(url);
+      dlog(`${fnName}: success ${url}`);
+      return out;
+    } catch (e) {
+      lastErr = e;
+      dlog(`${fnName}: failed ${url} -> ${e.message || e}`);
+    }
+  }
+  throw lastErr || new Error(`${fnName}: all endpoints failed`);
+}
+
+/** ========= Chain Fetchers ========= **/
+// Ethereum — rotate; if blocked, return a graceful fallback card with link
+async function getEthereum() {
+  const ETH_RPCS = [
+    'https://cloudflare-eth.com',
+    'https://ethereum.publicnode.com',
+    'https://rpc.builder0x69.io'
+    // (omitting Ankr because it needs a key on your network)
+  ];
+  try {
+    const r = await tryEndpoints(ETH_RPCS, 'Ethereum', async (url) => {
+      const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
+      const propose = toGwei(gasPriceWeiHex);
+      return { chain: 'Ethereum', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+    });
+    return r;
+  } catch (e) {
+    // Fallback: show a card with a button to Etherscan Gas Tracker
+    return {
+      chain: 'Ethereum',
+      unit: 'gwei',
+      value: NaN,
+      level: 'moderate',
+      error: 'Blocked by network/CORS',
+      link: 'https://etherscan.io/gastracker'
+    };
+  }
+}
+
+// Polygon — Gas Station
+async function getPolygon() {
+  const r = await fetchWithTimeout('https://gasstation.polygon.technology/v2', {}, 4000);
+  const g = await r.json();
+  const propose = g?.standard?.suggestedMaxFee ?? g?.fast?.maxFee ?? g?.fast?.suggestedMaxFee ?? 0;
+  return { chain: 'Polygon', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+}
+
+// Arbitrum
+async function getArbitrum() {
+  const ARB_RPCS = [
+    'https://arb1.arbitrum.io/rpc',
+    'https://arbitrum-one.publicnode.com'
+  ];
+  return tryEndpoints(ARB_RPCS, 'Arbitrum', async (url) => {
+    const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
+    const propose = toGwei(gasPriceWeiHex);
+    return { chain: 'Arbitrum', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  });
+}
+
+// Optimism
+async function getOptimism() {
+  const OP_RPCS = [
+    'https://mainnet.optimism.io',
+    'https://optimism.publicnode.com'
+  ];
+  return tryEndpoints(OP_RPCS, 'Optimism', async (url) => {
+    const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
+    const propose = toGwei(gasPriceWeiHex);
+    return { chain: 'Optimism', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  });
+}
+
+// Base
+async function getBase() {
+  const BASE_RPCS = [
+    'https://mainnet.base.org',
+    'https://base.publicnode.com'
+  ];
+  return tryEndpoints(BASE_RPCS, 'Base', async (url) => {
+    const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
+    const propose = toGwei(gasPriceWeiHex);
+    return { chain: 'Base', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  });
+}
+
+// Avalanche
+async function getAvalanche() {
+  const AVAX_RPCS = [
+    'https://api.avax.network/ext/bc/C/rpc',
+    'https://avalanche-c-chain.publicnode.com'
+  ];
+  return tryEndpoints(AVAX_RPCS, 'Avalanche', async (url) => {
+    const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
+    const propose = toGwei(gasPriceWeiHex);
+    return { chain: 'Avalanche', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  });
+}
+
+// Solana — rotate; if all fail, safe estimate
+async function getSolana() {
+  const SOL_RPCS = [
+    'https://api.mainnet-beta.solana.com',
+    'https://solana.publicnode.com',
+    'https://solana-api.projectserum.com'
+  ];
+  try {
+    return await tryEndpoints(SOL_RPCS, 'Solana', async (url) => {
+      let lamportsPerSig = 5000; // base signature fee
+      try {
+        const fees = await rpcPOST(url, 'getRecentPrioritizationFees', [], 3500);
+        const arr = Array.isArray(fees) ? fees : [];
+        const priors = arr.map(x => x?.prioritizationFee).filter(n => typeof n === 'number' && n >= 0);
+        const median = priors.length ? priors.sort((a,b)=>a-b)[Math.floor(priors.length/2)] : 0;
+        lamportsPerSig += median;
+      } catch {
+        try {
+          const feesObj = await rpcPOST(url, 'getFees', [], 3500);
+          if (feesObj?.value?.feeCalculator?.lamportsPerSignature) {
+            lamportsPerSig = feesObj.value.feeCalculator.lamportsPerSignature;
+          }
+        } catch {
+          // leave default
+        }
+      }
+      const sol = lamportsToSol(lamportsPerSig);
+      return { chain: 'Solana', unit: 'SOL/tx', value: sol, level: 'cheap' };
+    });
+  } catch {
+    return { chain: 'Solana', unit: 'SOL/tx', value: 0.000005, level: 'cheap', note: 'estimate' };
+  }
+}
+
+/** ========= Rendering ========= **/
+function renderCards(results) {
+  const root = document.getElementById('root');
+  const html = results.map(r => {
+    if (!r) return '';
+    // ETH fallback with button
+    if (r.chain === 'Ethereum' && (r.error || !isFinite(r.value))) {
+      return `
+        <div class="card">
+          <div class="row">
+            <h2>${r.chain}</h2>
+            <span class="badge ${r.level}">${r.level}</span>
+          </div>
+          <div class="value">—</div>
+          <div class="err" style="margin-bottom:8px;">${r.error || 'Unavailable'}</div>
+          <div><a href="https://etherscan.io/gastracker" target="_blank" rel="noopener">
+            <button>Open Etherscan Gas Tracker</button>
+          </a></div>
+          <div class="row" style="color: var(--muted); font-size:.9rem; margin-top:8px;">
+            <span>Partial fallback shown</span>
+            <span>${niceTime()}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    if (r.error) {
+      return `
+        <div class="card">
+          <h2>${r.chain}</h2>
+          <div class="value">—</div>
+          <div class="err">${r.error}</div>
+        </div>
+      `;
+    }
+
+    const valueStr = r.unit === 'gwei'
+      ? (isFinite(r.value) ? `${r.value.toFixed(1)} gwei` : '—')
+      : `~${r.value.toFixed(6)} ${r.unit}${r.note ? ' (est)' : ''}`;
+
+    return `
+      <div class="card">
+        <div class="row">
+          <h2>${r.chain}</h2>
+          <span class="badge ${r.level}">${r.level}</span>
+        </div>
+        <div class="value">${valueStr}</div>
+        <div class="row" style="color: var(--muted); font-size:.9rem">
+          <span>Live estimate</span>
+          <span>${niceTime()}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+  root.innerHTML = html;
+}
+
+async function loadAll() {
+  const fetchers = [
+    () => getEthereum().catch(e => ({ chain:'Ethereum', error: e.message })),
+    () => getPolygon().catch(e => ({ chain:'Polygon', error: e.message })),
+    () => getArbitrum().catch(e => ({ chain:'Arbitrum', error: e.message })),
+    () => getOptimism().catch(e => ({ chain:'Optimism', error: e.message })),
+    () => getBase().catch(e => ({ chain:'Base', error: e.message })),
+    () => getAvalanche().catch(e => ({ chain:'Avalanche', error: e.message })),
+    () => getSolana().catch(e => ({ chain:'Solana', error: e.message })),
+  ];
+  const results = await Promise.all(fetchers.map(fn => fn()));
+  renderCards(results);
+  document.getElementById('lastUpdated').textContent = `Last updated: ${niceTime()}`;
+}
+
+// Init
+loadAll();
+setInterval(loadAll, 30_000);
+document.getElementById('refreshBtn').addEventListener('click', loadAll);
+</script>
+
+<div class="footer">
+  If a chain times out or is blocked, it auto‑retries on each refresh. ETH may need a hosted page (HTTPS) due to CORS.
+</div>
+
+<!-- ——— OPTIONAL: One‑time publish steps are below (open the file to read) ——— -->
+<details class="debug">
+  <summary>How to publish this page for free (GitHub Pages)</summary>
+  <ol style="line-height:1.6">
+    <li>Go to <a href="https://github.com" target="_blank" rel="noopener">github.com</a> → create a free account (if you don’t have one).</li>
+    <li>Click your profile picture → <strong>+ New repository</strong>.</li>
+    <li>Name it <code>gas-checker</code> (any name is fine) → click <strong>Create repository</strong>.</li>
+    <li>Click <strong>“Add file” → “Create new file”</strong>.</li>
+    <li>Name the file <code>index.html</code>, then paste the entire code from this page into the big box.</li>
+    <li>Scroll down → click <strong>Commit changes</strong>.</li>
+    <li>Go to the repo’s <strong>Settings</strong> → left menu <strong>Pages</strong> → under “Source” choose <strong>Deploy from a branch</strong>.</li>
+    <li>Branch: <strong>main</strong> • Folder: <strong>root</strong> (/) → click <strong>Save</strong>.</li>
+    <li>Wait ~1 minute; a green link appears at the top (something like <code>https://YOURNAME.github.io/gas-checker/</code>). Open it.</li>
+  </ol>
+  <p style="color:#9ca3af;font-size:12px;margin-top:8px">
+    Once it’s on an HTTPS URL, most Ethereum RPCs accept the request and the ETH card should populate automatically.
+  </p>
+</details>
+
+</body>
+</html>
