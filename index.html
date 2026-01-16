@@ -54,7 +54,7 @@
 
 <script>
 /** ========= 1) CONFIG: Paste your free Etherscan API key here ========= **/
-const ETHERSCAN_API_KEY = '87KATFCBW8FNM3QJ23YJSB93DGJDZI452V'; // <-- replace this with your key
+const ETHERSCAN_API_KEY = 87KATFCBW8FNM3QJ23YJSB93DGJDZI452V; // <-- replace this with your key
 
 /** ========= Tiny debug logger ========= **/
 const logEl = document.getElementById('debugLog');
@@ -104,7 +104,7 @@ function lamportsToSol(lamports) { return lamports / 1e9; }
 
 // ETH via Etherscan Gas Oracle (requires free key)
 async function getEthereum() {
-  if (!ETHERSCAN_API_KEY || ETHERSCAN_API_KEY === '87KATFCBW8FNM3QJ23YJSB93DGJDZI452V') {
+  if (!ETHERSCAN_API_KEY || ETHERSCAN_API_KEY === 87KATFCBW8FNM3QJ23YJSB93DGJDZI452V) {
     return {
       chain: 'Ethereum',
       unit: 'gwei',
