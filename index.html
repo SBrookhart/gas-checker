@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Multichain Gas Checker</title>
+<title>Multichain Gas Checker (Key‑free)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root {
@@ -13,11 +13,6 @@
   body { background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; padding:20px; }
   h1 { text-align:center; margin-bottom:6px; }
   .meta { text-align:center; color:var(--muted); margin-bottom:10px; }
-  .topbar { max-width:980px; margin:0 auto 14px; display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap; }
-  .topbar input { background:#0f1620; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; padding:6px 10px; min-width:280px; }
-  .topbar button { background:#1f2937; color:var(--text); border:1px solid var(--border); padding:6px 10px; border-radius:8px; cursor:pointer; }
-  .topbar button:hover { background:var(--accent); }
-  .hint { color:#fbbf24; font-size:.9rem; }
   .grid { display:grid; gap:14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
   .card { background:var(--card); padding:16px; border-radius:12px; border:1px solid var(--border); min-height:120px; display:flex; flex-direction:column; justify-content:space-between; }
   .card h2 { margin:0 0 8px; font-size:1.05rem; }
@@ -26,6 +21,8 @@
   .badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.8rem; text-transform:capitalize; }
   .cheap{background:var(--cheap);} .moderate{background:var(--moderate);} .expensive{background:var(--expensive);}
   .err { color:#fca5a5; font-size:.9rem; }
+  button { background:#1f2937; color:var(--text); border:1px solid var(--border); padding:6px 10px; border-radius:8px; cursor:pointer; }
+  button:hover { background:var(--accent); }
   details.debug { max-width:980px; margin:16px auto; background:#0f1620; border:1px solid var(--border); border-radius:10px; padding:8px 12px; }
   .log { white-space:pre-wrap; font-family:ui-monospace, Menlo, Consolas, monospace; font-size:12px; color:#cbd5e1; max-height:200px; overflow:auto; background:#0b1119; border:1px solid #1f2937; border-radius:8px; padding:8px; }
   a.btn { color:#e5e7eb; text-decoration:none; background:#1f2937; border:1px solid #334155; padding:6px 10px; border-radius:8px; }
@@ -34,20 +31,11 @@
 </head>
 
 <body>
-  <h1>⛽ Multichain Gas Checker</h1>
+  <h1>⛽ Multichain Gas Checker (Key‑free)</h1>
   <div class="meta">
     <span id="lastUpdated">Loading…</span>
     · Auto‑refresh every 45s
     · <button id="refreshBtn" title="Refresh now">Refresh</button>
-  </div>
-
-  <!-- Key manager (stored only in this browser) + URL param capture -->
-  <div class="topbar">
-    <label for="key">Etherscan API key:</label>
-    <input id="key" type="password" placeholder="Paste your free key and click Save" />
-    <button id="saveKeyBtn">Save</button>
-    <button id="clearKeyBtn">Clear</button>
-    <span id="keyStatus" class="hint"></span>
   </div>
 
   <div id="root" class="grid"></div>
@@ -56,8 +44,8 @@
     <summary>Debug (optional)</summary>
     <div class="log" id="debugLog">No logs yet.</div>
     <div style="margin-top:6px;color:#9ca3af;font-size:12px">
-      ETH gas from Etherscan Gas Oracle · Docs: https://docs.etherscan.io/api-reference/endpoint/gasoracle ·
-      Polygon gas from Gas Station v2: https://gasstation.polygon.technology/v2
+      ETH gas: Etherchain Gas Price Oracle (no key) · Fallback: Blockscout eth_gasPrice (no key).
+      Polygon gas: Gas Station v2 (no key).
     </div>
   </details>
 
@@ -69,42 +57,6 @@ function dlog(...args) {
   logEl.textContent += `\n${new Date().toLocaleTimeString()}  ${line}`;
   logEl.scrollTop = logEl.scrollHeight;
 }
-
-/** ========= Local key storage + URL param capture ========= **/
-const KEY_STORAGE = 'ETHERSCAN_API_KEY';
-const keyInput = document.getElementById('key');
-const keyStatus = document.getElementById('keyStatus');
-
-function getApiKey(){ return (localStorage.getItem(KEY_STORAGE)||'').trim(); }
-function maskKey(k){ return k ? k.slice(0,4)+'•••'+k.slice(-2) : ''; }
-function updateKeyUI(){
-  const k = getApiKey();
-  keyStatus.textContent = k ? `Key saved (${maskKey(k)})` : 'No key saved yet';
-  keyInput.value = '';
-}
-// Capture ?ek=YOUR_KEY once and store locally
-(function captureKeyFromURL(){
-  const params = new URLSearchParams(location.search);
-  const ek = params.get('ek');
-  if (ek && ek.length > 10) {
-    localStorage.setItem(KEY_STORAGE, ek.trim());
-    // remove the key from the URL for safety
-    history.replaceState({}, '', location.pathname);
-    dlog('Captured key from URL param (masked):', maskKey(ek.trim()));
-  }
-})();
-updateKeyUI();
-
-document.getElementById('saveKeyBtn').addEventListener('click', ()=>{
-  const k = keyInput.value.trim();
-  if(!k){ alert('Paste your Etherscan API key first'); return; }
-  localStorage.setItem(KEY_STORAGE, k);
-  updateKeyUI(); dlog('Saved key len', k.length); loadAll();
-});
-document.getElementById('clearKeyBtn').addEventListener('click', ()=>{
-  localStorage.removeItem(KEY_STORAGE);
-  updateKeyUI(); dlog('Cleared key'); loadAll();
-});
 
 /** ========= Helpers ========= **/
 function gasLevelFromGwei(g){ if(!isFinite(g)) return 'moderate'; if(g<=10) return 'cheap'; if(g<=30) return 'moderate'; return 'expensive'; }
@@ -129,41 +81,50 @@ async function rpcPOST(url, method, params=[], timeoutMs=6000){
   return j.result;
 }
 
-/** ========= Chain fetchers ========= **/
+/** ========= Chain fetchers (no keys) ========= **/
 
-// ETH via Etherscan Gas Oracle (v2 -> v1 fallback). Requires free key.
+// ETH — primary: Etherchain Gas Price Oracle; fallback: Blockscout eth_gasPrice
 async function getEthereum(){
-  const apiKey = getApiKey();
-  if(!apiKey){
-    return { chain:'Ethereum', unit:'gwei', value:NaN, level:'moderate',
-      error:'Paste your free Etherscan key above (or open URL with ?ek=YOUR_KEY)',
-      help:'https://docs.etherscan.io/api-reference/endpoint/gasoracle' };
+  // 1) Etherchain oracle (no key). Typical fields: safeLow, standard, fast, currentBaseFee, etc.
+  try {
+    dlog('ETH: trying Etherchain oracle');
+    const r = await fetchWithTimeout('https://www.etherchain.org/api/gasPriceOracle', {}, 6000);
+    const g = await r.json();
+    // Prefer "standard" if present; otherwise pick any reasonable field.
+    const propose = Number(g.standard ?? g.fast ?? g.safeLow ?? g.currentBaseFee);
+    if (!isFinite(propose)) throw new Error('No usable field from Etherchain');
+    dlog('ETH: Etherchain success', propose);
+    return { chain:'Ethereum', unit:'gwei', value:propose, level:gasLevelFromGwei(propose), source:'Etherchain' };
+  } catch (e) {
+    dlog('ETH: Etherchain failed ->', e.message || e);
   }
-  dlog('ETH: using key', maskKey(apiKey));
-  const endpoints = [
-    `https://api.etherscan.io/v2/api?chainid=1&module=gastracker&action=gasoracle&apikey=${encodeURIComponent(apiKey)}`,
-    `https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=${encodeURIComponent(apiKey)}`
-  ];
-  let lastErr = null;
-  for(const url of endpoints){
-    try{
-      dlog('ETH: calling', url.replace(apiKey,'***'));
-      const r = await fetchWithTimeout(url, {}, 6000);
-      const j = await r.json();
-      if(j.status !== '1' || !j.result) throw new Error(j.message || 'No data');
-      const g = j.result;
-      const propose = parseFloat(g.ProposeGasPrice ?? g.proposeGasPrice);
-      if(!isFinite(propose)) throw new Error('Missing ProposeGasPrice');
-      return { chain:'Ethereum', unit:'gwei', value:propose, level:gasLevelFromGwei(propose) };
-    } catch(e){
-      lastErr = e; dlog('ETH endpoint failed ->', e.message || e);
-    }
+
+  // 2) Blockscout ETH RPC fallback (no key): eth_gasPrice returns hex wei
+  try {
+    dlog('ETH: trying Blockscout eth_gasPrice');
+    const gasPriceWeiHex = await rpcPOST('https://eth.blockscout.com/api/eth-rpc', 'eth_gasPrice', [], 6000);
+    const propose = toGweiFromHexWei(gasPriceWeiHex);
+    if (!isFinite(propose)) throw new Error('Invalid hex');
+    dlog('ETH: Blockscout success', propose);
+    return { chain:'Ethereum', unit:'gwei', value:propose, level:gasLevelFromGwei(propose), source:'Blockscout' };
+  } catch (e) {
+    dlog('ETH: Blockscout failed ->', e.message || e);
   }
-  return { chain:'Ethereum', unit:'gwei', value:NaN, level:'moderate', error:(lastErr && lastErr.message)||'Etherscan error' };
+
+  // 3) Graceful fallback card with helpful links
+  return {
+    chain:'Ethereum', unit:'gwei', value:NaN, level:'moderate',
+    error:'ETH endpoints blocked by network/CORS right now',
+    links: [
+      { href:'https://www.etherchain.org/tools/gasPriceOracle', label:'Open Etherchain Gas Oracle' },
+      { href:'https://etherscan.io/gastracker', label:'Open Etherscan Gas Tracker' }
+    ]
+  };
 }
 
 // Polygon — Gas Station v2 (no key)
 async function getPolygon(){
+  dlog('Polygon: gas station');
   const r = await fetchWithTimeout('https://gasstation.polygon.technology/v2', {}, 6000);
   const g = await r.json();
   const propose = g?.standard?.maxFee ?? g?.standard?.suggestedMaxFee ?? g?.fast?.maxFee ?? 0;
@@ -226,31 +187,23 @@ function renderCards(results){
   const root = document.getElementById('root');
   const html = results.map(r=>{
     if(!r) return '';
-    if (r.chain==='Ethereum' && (r.error || !isFinite(r.value))) {
+    if (r.error) {
+      // Error card with helpful links (for ETH)
+      const links = (r.links||[]).map(l=>`<a class="btn" href="${l.href}" target="_blank" rel="noopener">${l.label}</a>`).join(' ');
       return `
         <div class="card">
           <div class="row"><h2>${r.chain}</h2><span class="badge ${r.level}">${r.level}</span></div>
           <div class="value">—</div>
-          <div class="err" style="margin-bottom:8px;">${r.error || 'Unavailable'}</div>
-          <div><a class="btn" target="_blank" rel="noopener" href="https://etherscan.io/gastracker">Open Etherscan Gas Tracker</a></div>
+          <div class="err" style="margin-bottom:8px;">${r.error}</div>
+          <div>${links || ''}</div>
           <div class="row" style="color:var(--muted); font-size:.9rem; margin-top:8px;">
-            <span>${getApiKey()? 'Service temporary issue' : 'Paste your key above or use ?ek=YOUR_KEY'}</span>
-            <span>${niceTime()}</span>
+            <span>Partial fallback shown</span><span>${niceTime()}</span>
           </div>
         </div>
       `;
     }
-    if (r.error) {
-      return `
-        <div class="card">
-          <h2>${r.chain}</h2>
-          <div class="value">—</div>
-          <div class="err">${r.error}</div>
-        </div>
-      `;
-    }
     const valueStr = r.unit === 'gwei'
-      ? (isFinite(r.value) ? `${r.value.toFixed(1)} gwei` : '—')
+      ? (isFinite(r.value) ? `${r.value.toFixed(1)} gwei${r.source?` · ${r.source}`:''}` : '—')
       : `~${r.value.toFixed(6)} ${r.unit}${r.note ? ' (est)' : ''}`;
     return `
       <div class="card">
