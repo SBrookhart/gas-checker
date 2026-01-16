@@ -7,33 +7,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root {
-    --bg: #0b0f14;
-    --card: #111827;
-    --border: #1f2937;
-    --text: #e5e7eb;
-    --muted: #94a3b8;
-    --cheap: #065f46;
-    --moderate: #854d0e;
-    --expensive: #7f1d1d;
-    --accent: #243041;
+    --bg:#0b0f14; --card:#111827; --border:#1f2937; --text:#e5e7eb; --muted:#94a3b8;
+    --cheap:#065f46; --moderate:#854d0e; --expensive:#7f1d1d; --accent:#243041;
   }
-  body { background: var(--bg); color: var(--text); font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; padding: 20px; }
-  h1 { text-align: center; margin-bottom: 4px; }
-  .meta { text-align:center; color: var(--muted); margin-bottom: 14px; }
+  body { background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; padding:20px; }
+  h1 { text-align:center; margin-bottom:6px; }
+  .meta { text-align:center; color:var(--muted); margin-bottom:10px; }
+  .topbar { max-width:980px; margin:0 auto 14px; display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap; }
+  .topbar input { background:#0f1620; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; padding:6px 10px; min-width:280px; }
+  .topbar button { background:#1f2937; color:var(--text); border:1px solid var(--border); padding:6px 10px; border-radius:8px; cursor:pointer; }
+  .topbar button:hover { background:var(--accent); }
+  .hint { color:#fbbf24; font-size:.9rem; }
   .grid { display:grid; gap:14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-  .card { background: var(--card); padding: 16px; border-radius: 12px; border:1px solid var(--border); min-height: 120px; display:flex; flex-direction:column; justify-content:space-between; }
-  .card h2 { margin: 0 0 8px; font-size: 1.05rem; }
-  .value { font-size: 1.5rem; margin: 6px 0; }
-  .row { display:flex; justify-content:space-between; gap: 10px; align-items:center; }
-  .badge { display:inline-block; padding: 4px 10px; border-radius: 999px; font-size: .8rem; text-transform: capitalize; }
-  .cheap { background: var(--cheap); }
-  .moderate { background: var(--moderate); }
-  .expensive { background: var(--expensive); }
-  .err { color:#fca5a5; font-size: .9rem; }
-  button { background:#1f2937; color:var(--text); border:1px solid var(--border); padding:6px 10px; border-radius:8px; cursor:pointer; }
-  button:hover { background:var(--accent); }
-  details.debug { max-width: 980px; margin: 16px auto; background:#0f1620; border:1px solid var(--border); border-radius:10px; padding:8px 12px; }
-  .log { white-space: pre-wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color:#cbd5e1; max-height: 200px; overflow:auto; background:#0b1119; border:1px solid #1f2937; border-radius:8px; padding:8px; }
+  .card { background:var(--card); padding:16px; border-radius:12px; border:1px solid var(--border); min-height:120px; display:flex; flex-direction:column; justify-content:space-between; }
+  .card h2 { margin:0 0 8px; font-size:1.05rem; }
+  .value { font-size:1.5rem; margin:6px 0; }
+  .row { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+  .badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:.8rem; text-transform:capitalize; }
+  .cheap{background:var(--cheap);} .moderate{background:var(--moderate);} .expensive{background:var(--expensive);}
+  .err { color:#fca5a5; font-size:.9rem; }
+  details.debug { max-width:980px; margin:16px auto; background:#0f1620; border:1px solid var(--border); border-radius:10px; padding:8px 12px; }
+  .log { white-space:pre-wrap; font-family:ui-monospace, Menlo, Consolas, monospace; font-size:12px; color:#cbd5e1; max-height:200px; overflow:auto; background:#0b1119; border:1px solid #1f2937; border-radius:8px; padding:8px; }
+  a.btn { color:#e5e7eb; text-decoration:none; background:#1f2937; border:1px solid #334155; padding:6px 10px; border-radius:8px; }
+  a.btn:hover { background:#243041; }
 </style>
 </head>
 
@@ -41,8 +37,17 @@
   <h1>⛽ Multichain Gas Checker</h1>
   <div class="meta">
     <span id="lastUpdated">Loading…</span>
-    &middot; Auto‑refresh every 30s
-    &middot; <button id="refreshBtn" title="Refresh now">Refresh</button>
+    · Auto‑refresh every 45s
+    · <button id="refreshBtn" title="Refresh now">Refresh</button>
+  </div>
+
+  <!-- Key manager (stored only in this browser) + URL param capture -->
+  <div class="topbar">
+    <label for="key">Etherscan API key:</label>
+    <input id="key" type="password" placeholder="Paste your free key and click Save" />
+    <button id="saveKeyBtn">Save</button>
+    <button id="clearKeyBtn">Clear</button>
+    <span id="keyStatus" class="hint"></span>
   </div>
 
   <div id="root" class="grid"></div>
@@ -50,12 +55,13 @@
   <details class="debug">
     <summary>Debug (optional)</summary>
     <div class="log" id="debugLog">No logs yet.</div>
+    <div style="margin-top:6px;color:#9ca3af;font-size:12px">
+      ETH gas from Etherscan Gas Oracle · Docs: https://docs.etherscan.io/api-reference/endpoint/gasoracle ·
+      Polygon gas from Gas Station v2: https://gasstation.polygon.technology/v2
+    </div>
   </details>
 
 <script>
-/** ========= 1) CONFIG: Paste your free Etherscan API key here ========= **/
-const ETHERSCAN_API_KEY = 87KATFCBW8FNM3QJ23YJSB93DGJDZI452V; // <-- replace this with your key
-
 /** ========= Tiny debug logger ========= **/
 const logEl = document.getElementById('debugLog');
 function dlog(...args) {
@@ -64,151 +70,176 @@ function dlog(...args) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-/** ========= Utilities ========= **/
-function gasLevelFromGwei(g) {
-  if (!isFinite(g)) return 'moderate';
-  if (g <= 10) return 'cheap';
-  if (g <= 30) return 'moderate';
-  return 'expensive';
-}
-function niceTime(ts = Date.now()) { return new Date(ts).toLocaleTimeString(); }
+/** ========= Local key storage + URL param capture ========= **/
+const KEY_STORAGE = 'ETHERSCAN_API_KEY';
+const keyInput = document.getElementById('key');
+const keyStatus = document.getElementById('keyStatus');
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+function getApiKey(){ return (localStorage.getItem(KEY_STORAGE)||'').trim(); }
+function maskKey(k){ return k ? k.slice(0,4)+'•••'+k.slice(-2) : ''; }
+function updateKeyUI(){
+  const k = getApiKey();
+  keyStatus.textContent = k ? `Key saved (${maskKey(k)})` : 'No key saved yet';
+  keyInput.value = '';
+}
+// Capture ?ek=YOUR_KEY once and store locally
+(function captureKeyFromURL(){
+  const params = new URLSearchParams(location.search);
+  const ek = params.get('ek');
+  if (ek && ek.length > 10) {
+    localStorage.setItem(KEY_STORAGE, ek.trim());
+    // remove the key from the URL for safety
+    history.replaceState({}, '', location.pathname);
+    dlog('Captured key from URL param (masked):', maskKey(ek.trim()));
+  }
+})();
+updateKeyUI();
+
+document.getElementById('saveKeyBtn').addEventListener('click', ()=>{
+  const k = keyInput.value.trim();
+  if(!k){ alert('Paste your Etherscan API key first'); return; }
+  localStorage.setItem(KEY_STORAGE, k);
+  updateKeyUI(); dlog('Saved key len', k.length); loadAll();
+});
+document.getElementById('clearKeyBtn').addEventListener('click', ()=>{
+  localStorage.removeItem(KEY_STORAGE);
+  updateKeyUI(); dlog('Cleared key'); loadAll();
+});
+
+/** ========= Helpers ========= **/
+function gasLevelFromGwei(g){ if(!isFinite(g)) return 'moderate'; if(g<=10) return 'cheap'; if(g<=30) return 'moderate'; return 'expensive'; }
+function niceTime(ts=Date.now()){ return new Date(ts).toLocaleTimeString(); }
+function lamportsToSol(l){ return l/1e9; }
+function toGweiFromHexWei(weiHex){ try{ return parseInt(weiHex,16)/1e9; }catch{return NaN;} }
+
+async function fetchWithTimeout(url, options={}, timeoutMs=6000){
   const ctrl = new AbortController();
-  const id = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
+  const id = setTimeout(()=>ctrl.abort(), timeoutMs);
+  try{
     const r = await fetch(url, { ...options, signal: ctrl.signal });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     return r;
   } finally { clearTimeout(id); }
 }
-
-async function rpcPOST(url, method, params = [], timeoutMs = 5000) {
-  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
-  const r = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body
-  }, timeoutMs);
+async function rpcPOST(url, method, params=[], timeoutMs=6000){
+  const body = JSON.stringify({ jsonrpc:"2.0", id:1, method, params });
+  const r = await fetchWithTimeout(url, { method:'POST', headers:{'content-type':'application/json'}, body }, timeoutMs);
   const j = await r.json();
-  if (j.error) throw new Error(j.error.message || 'RPC error');
+  if(j.error) throw new Error(j.error.message || 'RPC error');
   return j.result;
 }
 
-function toGweiFromHexWei(weiHex) {
-  try { return parseInt(weiHex, 16) / 1e9; } catch { return NaN; }
-}
-function lamportsToSol(lamports) { return lamports / 1e9; }
+/** ========= Chain fetchers ========= **/
 
-/** ========= Chain Fetchers ========= **/
-
-// ETH via Etherscan Gas Oracle (requires free key)
-async function getEthereum() {
-  if (!ETHERSCAN_API_KEY || ETHERSCAN_API_KEY === 87KATFCBW8FNM3QJ23YJSB93DGJDZI452V) {
-    return {
-      chain: 'Ethereum',
-      unit: 'gwei',
-      value: NaN,
-      level: 'moderate',
-      error: 'Add your free Etherscan API key (see top of file).',
-      link: 'https://docs.etherscan.io/api-reference/endpoint/gasoracle'
-    };
+// ETH via Etherscan Gas Oracle (v2 -> v1 fallback). Requires free key.
+async function getEthereum(){
+  const apiKey = getApiKey();
+  if(!apiKey){
+    return { chain:'Ethereum', unit:'gwei', value:NaN, level:'moderate',
+      error:'Paste your free Etherscan key above (or open URL with ?ek=YOUR_KEY)',
+      help:'https://docs.etherscan.io/api-reference/endpoint/gasoracle' };
   }
-  const url = `https://api.etherscan.io/v2/api?chainid=1&module=gastracker&action=gasoracle&apikey=${encodeURIComponent(ETHERSCAN_API_KEY)}`;
-  const r = await fetchWithTimeout(url, {}, 6000);
-  const j = await r.json();
-  if (j.status !== '1' || !j.result) throw new Error('Etherscan returned no data');
-  const g = j.result;
-  // ProposeGasPrice is already in Gwei (string)
-  const propose = parseFloat(g.ProposeGasPrice);
-  return { chain: 'Ethereum', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  dlog('ETH: using key', maskKey(apiKey));
+  const endpoints = [
+    `https://api.etherscan.io/v2/api?chainid=1&module=gastracker&action=gasoracle&apikey=${encodeURIComponent(apiKey)}`,
+    `https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=${encodeURIComponent(apiKey)}`
+  ];
+  let lastErr = null;
+  for(const url of endpoints){
+    try{
+      dlog('ETH: calling', url.replace(apiKey,'***'));
+      const r = await fetchWithTimeout(url, {}, 6000);
+      const j = await r.json();
+      if(j.status !== '1' || !j.result) throw new Error(j.message || 'No data');
+      const g = j.result;
+      const propose = parseFloat(g.ProposeGasPrice ?? g.proposeGasPrice);
+      if(!isFinite(propose)) throw new Error('Missing ProposeGasPrice');
+      return { chain:'Ethereum', unit:'gwei', value:propose, level:gasLevelFromGwei(propose) };
+    } catch(e){
+      lastErr = e; dlog('ETH endpoint failed ->', e.message || e);
+    }
+  }
+  return { chain:'Ethereum', unit:'gwei', value:NaN, level:'moderate', error:(lastErr && lastErr.message)||'Etherscan error' };
 }
 
-// Polygon — Gas Station (no key)
-async function getPolygon() {
+// Polygon — Gas Station v2 (no key)
+async function getPolygon(){
   const r = await fetchWithTimeout('https://gasstation.polygon.technology/v2', {}, 6000);
   const g = await r.json();
   const propose = g?.standard?.maxFee ?? g?.standard?.suggestedMaxFee ?? g?.fast?.maxFee ?? 0;
-  return { chain: 'Polygon', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  return { chain:'Polygon', unit:'gwei', value:propose, level:gasLevelFromGwei(propose) };
 }
 
-// Arbitrum — public RPC
-async function getArbitrum() {
-  const gasPriceWeiHex = await rpcPOST('https://arb1.arbitrum.io/rpc', 'eth_gasPrice', [], 6000);
+// Arbitrum
+async function getArbitrum(){
+  const gasPriceWeiHex = await rpcPOST('https://arb1.arbitrum.io/rpc','eth_gasPrice',[],6000);
   const propose = toGweiFromHexWei(gasPriceWeiHex);
-  return { chain: 'Arbitrum', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  return { chain:'Arbitrum', unit:'gwei', value:propose, level:gasLevelFromGwei(propose) };
 }
 
-// Optimism — public RPC
-async function getOptimism() {
-  const gasPriceWeiHex = await rpcPOST('https://mainnet.optimism.io', 'eth_gasPrice', [], 6000);
+// Optimism
+async function getOptimism(){
+  const gasPriceWeiHex = await rpcPOST('https://mainnet.optimism.io','eth_gasPrice',[],6000);
   const propose = toGweiFromHexWei(gasPriceWeiHex);
-  return { chain: 'Optimism', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  return { chain:'Optimism', unit:'gwei', value:propose, level:gasLevelFromGwei(propose) };
 }
 
-// Base — public RPC (this one worked for you)
-async function getBase() {
-  const gasPriceWeiHex = await rpcPOST('https://mainnet.base.org', 'eth_gasPrice', [], 6000);
+// Base
+async function getBase(){
+  const gasPriceWeiHex = await rpcPOST('https://mainnet.base.org','eth_gasPrice',[],6000);
   const propose = toGweiFromHexWei(gasPriceWeiHex);
-  return { chain: 'Base', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  return { chain:'Base', unit:'gwei', value:propose, level:gasLevelFromGwei(propose) };
 }
 
-// Avalanche — public RPC
-async function getAvalanche() {
-  const gasPriceWeiHex = await rpcPOST('https://api.avax.network/ext/bc/C/rpc', 'eth_gasPrice', [], 6000);
+// Avalanche
+async function getAvalanche(){
+  const gasPriceWeiHex = await rpcPOST('https://api.avax.network/ext/bc/C/rpc','eth_gasPrice',[],6000);
   const propose = toGweiFromHexWei(gasPriceWeiHex);
-  return { chain: 'Avalanche', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
+  return { chain:'Avalanche', unit:'gwei', value:propose, level:gasLevelFromGwei(propose) };
 }
 
-// Solana — public RPC with quick fallback
-async function getSolana() {
-  try {
-    // Prefer getRecentPrioritizationFees, then fall back to getFees
+// Solana
+async function getSolana(){
+  try{
     let lamportsPerSig = 5000;
     try {
-      const fees = await rpcPOST('https://api.mainnet-beta.solana.com', 'getRecentPrioritizationFees', [], 5000);
+      const fees = await rpcPOST('https://api.mainnet-beta.solana.com','getRecentPrioritizationFees',[],5000);
       const arr = Array.isArray(fees) ? fees : [];
-      const priors = arr.map(x => x?.prioritizationFee).filter(n => typeof n === 'number' && n >= 0);
+      const priors = arr.map(x=>x?.prioritizationFee).filter(n=>typeof n==='number' && n>=0);
       const median = priors.length ? priors.sort((a,b)=>a-b)[Math.floor(priors.length/2)] : 0;
       lamportsPerSig += median;
     } catch {
-      const feesObj = await rpcPOST('https://api.mainnet-beta.solana.com', 'getFees', [], 5000);
+      const feesObj = await rpcPOST('https://api.mainnet-beta.solana.com','getFees',[],5000);
       if (feesObj?.value?.feeCalculator?.lamportsPerSignature) {
         lamportsPerSig = feesObj.value.feeCalculator.lamportsPerSignature;
       }
     }
     const sol = lamportsToSol(lamportsPerSig);
-    return { chain: 'Solana', unit: 'SOL/tx', value: sol, level: 'cheap' };
+    return { chain:'Solana', unit:'SOL/tx', value:sol, level:'cheap' };
   } catch {
-    // safe static estimate
-    return { chain: 'Solana', unit: 'SOL/tx', value: 0.000005, level: 'cheap', note: 'est' };
+    return { chain:'Solana', unit:'SOL/tx', value:0.000005, level:'cheap', note:'est' };
   }
 }
 
 /** ========= Rendering ========= **/
-function renderCards(results) {
+function renderCards(results){
   const root = document.getElementById('root');
-  const html = results.map(r => {
-    if (!r) return '';
-    // ETH fallback card with link if key missing or blocked
-    if (r.chain === 'Ethereum' && (r.error || !isFinite(r.value))) {
+  const html = results.map(r=>{
+    if(!r) return '';
+    if (r.chain==='Ethereum' && (r.error || !isFinite(r.value))) {
       return `
         <div class="card">
           <div class="row"><h2>${r.chain}</h2><span class="badge ${r.level}">${r.level}</span></div>
           <div class="value">—</div>
           <div class="err" style="margin-bottom:8px;">${r.error || 'Unavailable'}</div>
-          <div>
-            <a href="${r.link || 'https://etherscan.io/gastracker'}" target="_blank" rel="noopener">
-              <button>Open Etherscan Gas Tracker</button>
-            </a>
-          </div>
-          <div class="row" style="color: var(--muted); font-size:.9rem; margin-top:8px;">
-            <span>Partial fallback shown</span><span>${niceTime()}</span>
+          <div><a class="btn" target="_blank" rel="noopener" href="https://etherscan.io/gastracker">Open Etherscan Gas Tracker</a></div>
+          <div class="row" style="color:var(--muted); font-size:.9rem; margin-top:8px;">
+            <span>${getApiKey()? 'Service temporary issue' : 'Paste your key above or use ?ek=YOUR_KEY'}</span>
+            <span>${niceTime()}</span>
           </div>
         </div>
       `;
     }
-
     if (r.error) {
       return `
         <div class="card">
@@ -218,16 +249,14 @@ function renderCards(results) {
         </div>
       `;
     }
-
     const valueStr = r.unit === 'gwei'
       ? (isFinite(r.value) ? `${r.value.toFixed(1)} gwei` : '—')
       : `~${r.value.toFixed(6)} ${r.unit}${r.note ? ' (est)' : ''}`;
-
     return `
       <div class="card">
         <div class="row"><h2>${r.chain}</h2><span class="badge ${r.level}">${r.level}</span></div>
         <div class="value">${valueStr}</div>
-        <div class="row" style="color: var(--muted); font-size:.9rem">
+        <div class="row" style="color:var(--muted); font-size:.9rem">
           <span>Live estimate</span><span>${niceTime()}</span>
         </div>
       </div>
@@ -236,26 +265,26 @@ function renderCards(results) {
   root.innerHTML = html;
 }
 
-async function loadAll() {
+async function loadAll(){
   const fetchers = [
-    () => getEthereum().catch(e => ({ chain:'Ethereum', error: e.message })),
-    () => getPolygon().catch(e => ({ chain:'Polygon', error: e.message })),
-    () => getArbitrum().catch(e => ({ chain:'Arbitrum', error: e.message })),
-    () => getOptimism().catch(e => ({ chain:'Optimism', error: e.message })),
-    () => getBase().catch(e => ({ chain:'Base', error: e.message })),
-    () => getAvalanche().catch(e => ({ chain:'Avalanche', error: e.message })),
-    () => getSolana().catch(e => ({ chain:'Solana', error: e.message })),
+    () => getEthereum().catch(e=>({ chain:'Ethereum', error:e.message })),
+    () => getPolygon().catch(e=>({ chain:'Polygon', error:e.message })),
+    () => getArbitrum().catch(e=>({ chain:'Arbitrum', error:e.message })),
+    () => getOptimism().catch(e=>({ chain:'Optimism', error:e.message })),
+    () => getBase().catch(e=>({ chain:'Base', error:e.message })),
+    () => getAvalanche().catch(e=>({ chain:'Avalanche', error:e.message })),
+    () => getSolana().catch(e=>({ chain:'Solana', error:e.message })),
   ];
-  const results = await Promise.all(fetchers.map(fn => fn()));
+  const results = await Promise.all(fetchers.map(fn=>fn()));
   renderCards(results);
   document.getElementById('lastUpdated').textContent = `Last updated: ${niceTime()}`;
 }
 
-// Init + auto refresh
+// init + auto-refresh
 loadAll();
-setInterval(loadAll, 30_000);
+const REFRESH_MS = 45_000;
+setInterval(loadAll, REFRESH_MS);
 document.getElementById('refreshBtn').addEventListener('click', loadAll);
 </script>
 </body>
 </html>
-``
