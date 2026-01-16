@@ -16,8 +16,6 @@
     --moderate: #854d0e;
     --expensive: #7f1d1d;
     --accent: #243041;
-    --warn: #f59e0b22;
-    --warn-border: #f59e0b55;
   }
   body { background: var(--bg); color: var(--text); font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; padding: 20px; }
   h1 { text-align: center; margin-bottom: 4px; }
@@ -32,11 +30,8 @@
   .moderate { background: var(--moderate); }
   .expensive { background: var(--expensive); }
   .err { color:#fca5a5; font-size: .9rem; }
-  .footer { text-align:center; color:var(--muted); margin-top:14px; font-size:.9rem; }
   button { background:#1f2937; color:var(--text); border:1px solid var(--border); padding:6px 10px; border-radius:8px; cursor:pointer; }
   button:hover { background:var(--accent); }
-  .banner { max-width:980px; margin:12px auto; padding:10px 12px; border:1px solid var(--warn-border); background:var(--warn); border-radius:10px; color:#fbbf24; }
-  .banner strong { color:#fde68a; }
   details.debug { max-width: 980px; margin: 16px auto; background:#0f1620; border:1px solid var(--border); border-radius:10px; padding:8px 12px; }
   .log { white-space: pre-wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color:#cbd5e1; max-height: 200px; overflow:auto; background:#0b1119; border:1px solid #1f2937; border-radius:8px; padding:8px; }
 </style>
@@ -50,23 +45,17 @@
     &middot; <button id="refreshBtn" title="Refresh now">Refresh</button>
   </div>
 
-  <div id="banner" class="banner" style="display:none;">
-    <strong>Heads‑up:</strong> You’re opening this file directly from your computer (<code>file://</code>).
-    Some public Ethereum RPCs block requests from this origin, so the ETH card may show a fallback.
-    For the best experience, publish this page (free) with GitHub Pages—see steps below.
-  </div>
-
   <div id="root" class="grid"></div>
 
   <details class="debug">
     <summary>Debug (optional)</summary>
     <div class="log" id="debugLog">No logs yet.</div>
-    <div style="margin-top:8px; color:#9ca3af; font-size:12px;">
-      Tip: If Ethereum keeps failing here due to CORS, publishing to a real HTTPS URL (GitHub Pages) usually fixes it.
-    </div>
   </details>
 
 <script>
+/** ========= 1) CONFIG: Paste your free Etherscan API key here ========= **/
+const ETHERSCAN_API_KEY = 'PASTE_YOUR_KEY_HERE'; // <-- replace this with your key
+
 /** ========= Tiny debug logger ========= **/
 const logEl = document.getElementById('debugLog');
 function dlog(...args) {
@@ -75,25 +64,7 @@ function dlog(...args) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-/** ========= Show banner if opened from file:// ========= **/
-if (location.protocol === 'file:') {
-  document.getElementById('banner').style.display = 'block';
-}
-
-/** ========= Utilities with timeouts ========= **/
-function toGwei(weiHexOrNum) {
-  try {
-    if (typeof weiHexOrNum === 'string') {
-      const n = parseInt(weiHexOrNum, 16);
-      return n / 1e9;
-    }
-    return Number(weiHexOrNum) / 1e9;
-  } catch (e) {
-    dlog('toGwei failed:', e.message || e);
-    return NaN;
-  }
-}
-function lamportsToSol(lamports) { return lamports / 1e9; }
+/** ========= Utilities ========= **/
 function gasLevelFromGwei(g) {
   if (!isFinite(g)) return 'moderate';
   if (g <= 10) return 'cheap';
@@ -102,18 +73,17 @@ function gasLevelFromGwei(g) {
 }
 function niceTime(ts = Date.now()) { return new Date(ts).toLocaleTimeString(); }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(url, { ...options, signal: ctrl.signal });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r;
-  } finally {
-    clearTimeout(id);
-  }
+  } finally { clearTimeout(id); }
 }
-async function rpcPOST(url, method, params = [], timeoutMs = 4000) {
+
+async function rpcPOST(url, method, params = [], timeoutMs = 5000) {
   const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
   const r = await fetchWithTimeout(url, {
     method: 'POST',
@@ -124,142 +94,94 @@ async function rpcPOST(url, method, params = [], timeoutMs = 4000) {
   if (j.error) throw new Error(j.error.message || 'RPC error');
   return j.result;
 }
-async function tryEndpoints(endpoints, fnName, callFn) {
-  let lastErr = null;
-  for (const url of endpoints) {
-    try {
-      dlog(`${fnName}: trying ${url}`);
-      const out = await callFn(url);
-      dlog(`${fnName}: success ${url}`);
-      return out;
-    } catch (e) {
-      lastErr = e;
-      dlog(`${fnName}: failed ${url} -> ${e.message || e}`);
-    }
-  }
-  throw lastErr || new Error(`${fnName}: all endpoints failed`);
+
+function toGweiFromHexWei(weiHex) {
+  try { return parseInt(weiHex, 16) / 1e9; } catch { return NaN; }
 }
+function lamportsToSol(lamports) { return lamports / 1e9; }
 
 /** ========= Chain Fetchers ========= **/
-// Ethereum — rotate; if blocked, return a graceful fallback card with link
+
+// ETH via Etherscan Gas Oracle (requires free key)
 async function getEthereum() {
-  const ETH_RPCS = [
-    'https://cloudflare-eth.com',
-    'https://ethereum.publicnode.com',
-    'https://rpc.builder0x69.io'
-    // (omitting Ankr because it needs a key on your network)
-  ];
-  try {
-    const r = await tryEndpoints(ETH_RPCS, 'Ethereum', async (url) => {
-      const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
-      const propose = toGwei(gasPriceWeiHex);
-      return { chain: 'Ethereum', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
-    });
-    return r;
-  } catch (e) {
-    // Fallback: show a card with a button to Etherscan Gas Tracker
+  if (!ETHERSCAN_API_KEY || ETHERSCAN_API_KEY === 'PASTE_YOUR_KEY_HERE') {
     return {
       chain: 'Ethereum',
       unit: 'gwei',
       value: NaN,
       level: 'moderate',
-      error: 'Blocked by network/CORS',
-      link: 'https://etherscan.io/gastracker'
+      error: 'Add your free Etherscan API key (see top of file).',
+      link: 'https://docs.etherscan.io/api-reference/endpoint/gasoracle'
     };
   }
+  const url = `https://api.etherscan.io/v2/api?chainid=1&module=gastracker&action=gasoracle&apikey=${encodeURIComponent(ETHERSCAN_API_KEY)}`;
+  const r = await fetchWithTimeout(url, {}, 6000);
+  const j = await r.json();
+  if (j.status !== '1' || !j.result) throw new Error('Etherscan returned no data');
+  const g = j.result;
+  // ProposeGasPrice is already in Gwei (string)
+  const propose = parseFloat(g.ProposeGasPrice);
+  return { chain: 'Ethereum', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
 }
 
-// Polygon — Gas Station
+// Polygon — Gas Station (no key)
 async function getPolygon() {
-  const r = await fetchWithTimeout('https://gasstation.polygon.technology/v2', {}, 4000);
+  const r = await fetchWithTimeout('https://gasstation.polygon.technology/v2', {}, 6000);
   const g = await r.json();
-  const propose = g?.standard?.suggestedMaxFee ?? g?.fast?.maxFee ?? g?.fast?.suggestedMaxFee ?? 0;
+  const propose = g?.standard?.maxFee ?? g?.standard?.suggestedMaxFee ?? g?.fast?.maxFee ?? 0;
   return { chain: 'Polygon', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
 }
 
-// Arbitrum
+// Arbitrum — public RPC
 async function getArbitrum() {
-  const ARB_RPCS = [
-    'https://arb1.arbitrum.io/rpc',
-    'https://arbitrum-one.publicnode.com'
-  ];
-  return tryEndpoints(ARB_RPCS, 'Arbitrum', async (url) => {
-    const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
-    const propose = toGwei(gasPriceWeiHex);
-    return { chain: 'Arbitrum', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
-  });
+  const gasPriceWeiHex = await rpcPOST('https://arb1.arbitrum.io/rpc', 'eth_gasPrice', [], 6000);
+  const propose = toGweiFromHexWei(gasPriceWeiHex);
+  return { chain: 'Arbitrum', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
 }
 
-// Optimism
+// Optimism — public RPC
 async function getOptimism() {
-  const OP_RPCS = [
-    'https://mainnet.optimism.io',
-    'https://optimism.publicnode.com'
-  ];
-  return tryEndpoints(OP_RPCS, 'Optimism', async (url) => {
-    const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
-    const propose = toGwei(gasPriceWeiHex);
-    return { chain: 'Optimism', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
-  });
+  const gasPriceWeiHex = await rpcPOST('https://mainnet.optimism.io', 'eth_gasPrice', [], 6000);
+  const propose = toGweiFromHexWei(gasPriceWeiHex);
+  return { chain: 'Optimism', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
 }
 
-// Base
+// Base — public RPC (this one worked for you)
 async function getBase() {
-  const BASE_RPCS = [
-    'https://mainnet.base.org',
-    'https://base.publicnode.com'
-  ];
-  return tryEndpoints(BASE_RPCS, 'Base', async (url) => {
-    const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
-    const propose = toGwei(gasPriceWeiHex);
-    return { chain: 'Base', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
-  });
+  const gasPriceWeiHex = await rpcPOST('https://mainnet.base.org', 'eth_gasPrice', [], 6000);
+  const propose = toGweiFromHexWei(gasPriceWeiHex);
+  return { chain: 'Base', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
 }
 
-// Avalanche
+// Avalanche — public RPC
 async function getAvalanche() {
-  const AVAX_RPCS = [
-    'https://api.avax.network/ext/bc/C/rpc',
-    'https://avalanche-c-chain.publicnode.com'
-  ];
-  return tryEndpoints(AVAX_RPCS, 'Avalanche', async (url) => {
-    const gasPriceWeiHex = await rpcPOST(url, 'eth_gasPrice', [], 4000);
-    const propose = toGwei(gasPriceWeiHex);
-    return { chain: 'Avalanche', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
-  });
+  const gasPriceWeiHex = await rpcPOST('https://api.avax.network/ext/bc/C/rpc', 'eth_gasPrice', [], 6000);
+  const propose = toGweiFromHexWei(gasPriceWeiHex);
+  return { chain: 'Avalanche', unit: 'gwei', value: propose, level: gasLevelFromGwei(propose) };
 }
 
-// Solana — rotate; if all fail, safe estimate
+// Solana — public RPC with quick fallback
 async function getSolana() {
-  const SOL_RPCS = [
-    'https://api.mainnet-beta.solana.com',
-    'https://solana.publicnode.com',
-    'https://solana-api.projectserum.com'
-  ];
   try {
-    return await tryEndpoints(SOL_RPCS, 'Solana', async (url) => {
-      let lamportsPerSig = 5000; // base signature fee
-      try {
-        const fees = await rpcPOST(url, 'getRecentPrioritizationFees', [], 3500);
-        const arr = Array.isArray(fees) ? fees : [];
-        const priors = arr.map(x => x?.prioritizationFee).filter(n => typeof n === 'number' && n >= 0);
-        const median = priors.length ? priors.sort((a,b)=>a-b)[Math.floor(priors.length/2)] : 0;
-        lamportsPerSig += median;
-      } catch {
-        try {
-          const feesObj = await rpcPOST(url, 'getFees', [], 3500);
-          if (feesObj?.value?.feeCalculator?.lamportsPerSignature) {
-            lamportsPerSig = feesObj.value.feeCalculator.lamportsPerSignature;
-          }
-        } catch {
-          // leave default
-        }
+    // Prefer getRecentPrioritizationFees, then fall back to getFees
+    let lamportsPerSig = 5000;
+    try {
+      const fees = await rpcPOST('https://api.mainnet-beta.solana.com', 'getRecentPrioritizationFees', [], 5000);
+      const arr = Array.isArray(fees) ? fees : [];
+      const priors = arr.map(x => x?.prioritizationFee).filter(n => typeof n === 'number' && n >= 0);
+      const median = priors.length ? priors.sort((a,b)=>a-b)[Math.floor(priors.length/2)] : 0;
+      lamportsPerSig += median;
+    } catch {
+      const feesObj = await rpcPOST('https://api.mainnet-beta.solana.com', 'getFees', [], 5000);
+      if (feesObj?.value?.feeCalculator?.lamportsPerSignature) {
+        lamportsPerSig = feesObj.value.feeCalculator.lamportsPerSignature;
       }
-      const sol = lamportsToSol(lamportsPerSig);
-      return { chain: 'Solana', unit: 'SOL/tx', value: sol, level: 'cheap' };
-    });
+    }
+    const sol = lamportsToSol(lamportsPerSig);
+    return { chain: 'Solana', unit: 'SOL/tx', value: sol, level: 'cheap' };
   } catch {
-    return { chain: 'Solana', unit: 'SOL/tx', value: 0.000005, level: 'cheap', note: 'estimate' };
+    // safe static estimate
+    return { chain: 'Solana', unit: 'SOL/tx', value: 0.000005, level: 'cheap', note: 'est' };
   }
 }
 
@@ -268,22 +190,20 @@ function renderCards(results) {
   const root = document.getElementById('root');
   const html = results.map(r => {
     if (!r) return '';
-    // ETH fallback with button
+    // ETH fallback card with link if key missing or blocked
     if (r.chain === 'Ethereum' && (r.error || !isFinite(r.value))) {
       return `
         <div class="card">
-          <div class="row">
-            <h2>${r.chain}</h2>
-            <span class="badge ${r.level}">${r.level}</span>
-          </div>
+          <div class="row"><h2>${r.chain}</h2><span class="badge ${r.level}">${r.level}</span></div>
           <div class="value">—</div>
           <div class="err" style="margin-bottom:8px;">${r.error || 'Unavailable'}</div>
-          <div><a href="https://etherscan.io/gastracker" target="_blank" rel="noopener">
-            <button>Open Etherscan Gas Tracker</button>
-          </a></div>
+          <div>
+            <a href="${r.link || 'https://etherscan.io/gastracker'}" target="_blank" rel="noopener">
+              <button>Open Etherscan Gas Tracker</button>
+            </a>
+          </div>
           <div class="row" style="color: var(--muted); font-size:.9rem; margin-top:8px;">
-            <span>Partial fallback shown</span>
-            <span>${niceTime()}</span>
+            <span>Partial fallback shown</span><span>${niceTime()}</span>
           </div>
         </div>
       `;
@@ -305,14 +225,10 @@ function renderCards(results) {
 
     return `
       <div class="card">
-        <div class="row">
-          <h2>${r.chain}</h2>
-          <span class="badge ${r.level}">${r.level}</span>
-        </div>
+        <div class="row"><h2>${r.chain}</h2><span class="badge ${r.level}">${r.level}</span></div>
         <div class="value">${valueStr}</div>
         <div class="row" style="color: var(--muted); font-size:.9rem">
-          <span>Live estimate</span>
-          <span>${niceTime()}</span>
+          <span>Live estimate</span><span>${niceTime()}</span>
         </div>
       </div>
     `;
@@ -335,34 +251,11 @@ async function loadAll() {
   document.getElementById('lastUpdated').textContent = `Last updated: ${niceTime()}`;
 }
 
-// Init
+// Init + auto refresh
 loadAll();
 setInterval(loadAll, 30_000);
 document.getElementById('refreshBtn').addEventListener('click', loadAll);
 </script>
-
-<div class="footer">
-  If a chain times out or is blocked, it auto‑retries on each refresh. ETH may need a hosted page (HTTPS) due to CORS.
-</div>
-
-<!-- ——— OPTIONAL: One‑time publish steps are below (open the file to read) ——— -->
-<details class="debug">
-  <summary>How to publish this page for free (GitHub Pages)</summary>
-  <ol style="line-height:1.6">
-    <li>Go to <a href="https://github.com" target="_blank" rel="noopener">github.com</a> → create a free account (if you don’t have one).</li>
-    <li>Click your profile picture → <strong>+ New repository</strong>.</li>
-    <li>Name it <code>gas-checker</code> (any name is fine) → click <strong>Create repository</strong>.</li>
-    <li>Click <strong>“Add file” → “Create new file”</strong>.</li>
-    <li>Name the file <code>index.html</code>, then paste the entire code from this page into the big box.</li>
-    <li>Scroll down → click <strong>Commit changes</strong>.</li>
-    <li>Go to the repo’s <strong>Settings</strong> → left menu <strong>Pages</strong> → under “Source” choose <strong>Deploy from a branch</strong>.</li>
-    <li>Branch: <strong>main</strong> • Folder: <strong>root</strong> (/) → click <strong>Save</strong>.</li>
-    <li>Wait ~1 minute; a green link appears at the top (something like <code>https://YOURNAME.github.io/gas-checker/</code>). Open it.</li>
-  </ol>
-  <p style="color:#9ca3af;font-size:12px;margin-top:8px">
-    Once it’s on an HTTPS URL, most Ethereum RPCs accept the request and the ETH card should populate automatically.
-  </p>
-</details>
-
 </body>
 </html>
+``
